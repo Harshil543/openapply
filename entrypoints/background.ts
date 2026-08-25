@@ -20,6 +20,7 @@ import {
   clearAllData,
   exportAllData,
   migrateIfNeeded,
+  type AppSettings,
 } from '../lib/storage';
 
 async function extractJobFromActiveTab(): Promise<{ success: boolean; data: unknown; error?: string }> {
@@ -39,6 +40,14 @@ export default defineBackground(() => {
 
   migrateIfNeeded().catch(console.error);
 
+  // Periodic migration check via chrome.alarms
+  chrome.alarms.create('openapply-migrate', { periodInMinutes: 60 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'openapply-migrate') {
+      migrateIfNeeded().catch(console.error);
+    }
+  });
+
   registerHandlers({
     GET_PROFILE: () => getProfile(),
     SAVE_PROFILE: (profile) => saveProfile(profile),
@@ -54,7 +63,7 @@ export default defineBackground(() => {
     GET_AI_CONFIG: () => getAIConfig(),
     SAVE_AI_CONFIG: (config) => saveAIConfig(config),
     GET_SETTINGS: () => getSettings(),
-    SAVE_SETTINGS: (settings) => saveSettings(settings),
+    SAVE_SETTINGS: (settings) => saveSettings(settings as AppSettings),
     EXPORT_DATA: () => exportAllData(),
     CLEAR_ALL_DATA: () => clearAllData(),
   });
@@ -99,8 +108,8 @@ export default defineBackground(() => {
 
   initMessageListener();
 
-  chrome.runtime.onInstalled.addListener(() => {
-    console.log('[OpenApply] Extension installed / reloaded');
+  chrome.runtime.onInstalled.addListener((details) => {
+    console.log('[OpenApply] Extension installed / reloaded', details.reason);
     chrome.contextMenus?.removeAll(() => {
       chrome.contextMenus?.create({
         id: 'openapply-analyze',
@@ -113,6 +122,9 @@ export default defineBackground(() => {
         contexts: ['page', 'selection'],
       });
     });
+    if (details.reason === 'install') {
+      chrome.tabs.create({ url: chrome.runtime.getURL('onboarding.html') });
+    }
   });
 
   chrome.commands?.onCommand?.addListener((command) => {

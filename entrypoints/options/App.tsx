@@ -5,7 +5,8 @@ import type { AIProviderConfig } from '../../lib/schemas/ai';
 import type { Application } from '../../lib/schemas/application';
 import type { Job } from '../../lib/schemas/job';
 import { computeAnalytics } from '../../lib/analytics';
-import { formatExportData, downloadExport } from '../../lib/export';
+import { formatExportData, formatApplicationsCSV, downloadExport } from '../../lib/export';
+import type { AppSettings } from '../../lib/storage';
 
 type Tab = 'profile' | 'preferences' | 'ai' | 'privacy' | 'data';
 
@@ -17,18 +18,21 @@ export function OptionsApp() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light' | 'system'>('dark');
 
   const loadData = useCallback(async () => {
-    const [profileRes, aiRes, appsRes, jobsRes] = await Promise.all([
+    const [profileRes, aiRes, appsRes, jobsRes, settingsRes] = await Promise.all([
       sendMessage({ type: 'GET_PROFILE' }),
       sendMessage({ type: 'GET_AI_CONFIG' }),
       sendMessage({ type: 'GET_APPLICATIONS' }),
       sendMessage({ type: 'GET_JOBS' }),
+      sendMessage({ type: 'GET_SETTINGS' }),
     ]);
     if (profileRes.success && profileRes.data) setProfile(profileRes.data as Profile);
     if (aiRes.success && aiRes.data) setAiConfig(aiRes.data as AIProviderConfig);
     if (appsRes.success && appsRes.data) setApplications(appsRes.data as Application[]);
     if (jobsRes.success && jobsRes.data) setJobs(jobsRes.data as Job[]);
+    if (settingsRes.success && settingsRes.data) setTheme((settingsRes.data as { theme?: 'dark' | 'light' | 'system' }).theme || 'dark');
     setLoading(false);
   }, []);
 
@@ -83,7 +87,7 @@ export function OptionsApp() {
           <AITab config={aiConfig} setConfig={setAiConfig} onSave={showSaved} />
         )}
         {tab === 'preferences' && profile && (
-          <PreferencesTab profile={profile} setProfile={setProfile} onSave={showSaved} />
+          <PreferencesTab profile={profile} setProfile={setProfile} theme={theme} onThemeChange={setTheme} onSave={showSaved} />
         )}
         {tab === 'privacy' && <PrivacyTab />}
         {tab === 'data' && <DataTab applications={applications} jobs={jobs} profile={profile} onRefresh={loadData} />}
@@ -264,13 +268,17 @@ function AITab({
 function PreferencesTab({
   profile,
   setProfile,
+  theme,
+  onThemeChange,
   onSave,
 }: {
   profile: Profile;
   setProfile: (p: Profile) => void;
+  theme: 'dark' | 'light' | 'system';
+  onThemeChange: (t: 'dark' | 'light' | 'system') => void;
   onSave: () => void;
 }) {
-  const [settings, setSettings] = useState({
+  const [prefs, setPrefs] = useState({
     desiredTitles: profile.professional.desiredTitles.join(', '),
     preferredLocations: profile.personal.preferredLocations.join(', '),
     remoteOnly: profile.personal.remotePreference,
@@ -283,13 +291,13 @@ function PreferencesTab({
       ...profile,
       personal: {
         ...profile.personal,
-        preferredLocations: settings.preferredLocations.split(',').map((s) => s.trim()).filter(Boolean),
-        remotePreference: settings.remoteOnly,
+        preferredLocations: prefs.preferredLocations.split(',').map((s) => s.trim()).filter(Boolean),
+        remotePreference: prefs.remoteOnly,
       },
       professional: {
         ...profile.professional,
-        desiredTitles: settings.desiredTitles.split(',').map((s) => s.trim()).filter(Boolean),
-        employmentType: settings.employmentType as Profile['professional']['employmentType'],
+        desiredTitles: prefs.desiredTitles.split(',').map((s) => s.trim()).filter(Boolean),
+        employmentType: prefs.employmentType as Profile['professional']['employmentType'],
       },
       updatedAt: now,
     };
@@ -298,24 +306,48 @@ function PreferencesTab({
     onSave();
   };
 
+  const handleThemeChange = async (t: 'dark' | 'light' | 'system') => {
+    onThemeChange(t);
+    const res = await sendMessage({ type: 'GET_SETTINGS' });
+    if (res.success && res.data) {
+      const current = res.data as AppSettings;
+      await sendMessage({ type: 'SAVE_SETTINGS', payload: { ...current, theme: t } });
+    }
+  };
+
   return (
     <div className="space-y-4">
+      <Section title="Appearance">
+        <div className="space-y-2">
+          {(['dark', 'light', 'system'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => handleThemeChange(t)}
+              className={`w-full py-2 rounded-lg text-sm transition-colors capitalize ${
+                theme === t ? 'bg-blue-600 text-white' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+              }`}
+            >
+              {t === 'system' ? 'System (auto)' : t}
+            </button>
+          ))}
+        </div>
+      </Section>
       <Section title="Job Preferences">
         <div className="space-y-3">
-          <TextArea label="Desired Titles" value={settings.desiredTitles} onChange={(v) => setSettings({ ...settings, desiredTitles: v })} />
-          <TextArea label="Preferred Locations" value={settings.preferredLocations} onChange={(v) => setSettings({ ...settings, preferredLocations: v })} />
+          <TextArea label="Desired Titles" value={prefs.desiredTitles} onChange={(v) => setPrefs({ ...prefs, desiredTitles: v })} />
+          <TextArea label="Preferred Locations" value={prefs.preferredLocations} onChange={(v) => setPrefs({ ...prefs, preferredLocations: v })} />
           <div className="flex items-center justify-between bg-zinc-800 rounded-lg p-3">
             <span className="text-sm text-zinc-300">Remote Only</span>
             <button
-              onClick={() => setSettings({ ...settings, remoteOnly: !settings.remoteOnly })}
-              className={`w-10 h-5 rounded-full transition-colors relative ${settings.remoteOnly ? 'bg-blue-600' : 'bg-zinc-700'}`}
+              onClick={() => setPrefs({ ...prefs, remoteOnly: !prefs.remoteOnly })}
+              className={`w-10 h-5 rounded-full transition-colors relative ${prefs.remoteOnly ? 'bg-blue-600' : 'bg-zinc-700'}`}
             >
-              <span className={`absolute w-4 h-4 rounded-full bg-white top-0.5 transition-transform ${settings.remoteOnly ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              <span className={`absolute w-4 h-4 rounded-full bg-white top-0.5 transition-transform ${prefs.remoteOnly ? 'translate-x-5' : 'translate-x-0.5'}`} />
             </button>
           </div>
           <Select
             label="Employment Type"
-            value={settings.employmentType}
+            value={prefs.employmentType}
             options={[
               { value: 'full-time', label: 'Full-time' },
               { value: 'part-time', label: 'Part-time' },
@@ -323,7 +355,7 @@ function PreferencesTab({
               { value: 'freelance', label: 'Freelance' },
               { value: 'internship', label: 'Internship' },
             ]}
-            onChange={(v) => setSettings({ ...settings, employmentType: v })}
+            onChange={(v) => setPrefs({ ...prefs, employmentType: v as typeof prefs.employmentType })}
           />
         </div>
       </Section>
@@ -413,7 +445,7 @@ function DataTab({
 
       <Section title="Export / Import">
         <p className="text-sm text-zinc-400 mb-3">
-          Export all your data as JSON or import from a previous export.
+          Export all your data as JSON or CSV, or import from a previous JSON export.
         </p>
         <div className="space-y-2">
           <button
@@ -421,7 +453,17 @@ function DataTab({
             disabled={exporting}
             className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
           >
-            {exporting ? 'Exporting...' : 'Export All Data'}
+            {exporting ? 'Exporting...' : 'Export All Data (JSON)'}
+          </button>
+          <button
+            onClick={() => {
+              const csv = formatApplicationsCSV(applications, jobs);
+              const filename = `openapply-applications-${new Date().toISOString().split('T')[0]}.csv`;
+              downloadExport(csv, filename, 'text/csv');
+            }}
+            className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors"
+          >
+            Export Applications (CSV)
           </button>
           <button
             onClick={handleImport}
@@ -458,27 +500,42 @@ function PrivacyTab() {
   };
 
   return (
-    <Section title="Privacy">
-      <p className="text-sm text-zinc-400">
-        All data is stored locally in your browser via chrome.storage.local.
-        No data is sent to any server except the AI provider you configure.
-      </p>
-      <div className="mt-3 space-y-2">
-        <button className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors">
-          Export All Data
-        </button>
-        <button
-          onClick={handleClearAll}
-          className={`w-full py-2 rounded-lg text-sm transition-colors ${
-            confirmDelete
-              ? 'bg-red-600 hover:bg-red-500 text-white'
-              : 'bg-red-900/30 hover:bg-red-900/50 border border-red-800 text-red-400'
-          }`}
-        >
-          {confirmDelete ? 'Click again to confirm deletion' : 'Delete All Data'}
-        </button>
-      </div>
-    </Section>
+    <div className="space-y-4">
+      <Section title="Privacy Policy">
+        <div className="space-y-2 text-sm text-zinc-300">
+          <p>OpenApply is designed with privacy as a core principle.</p>
+          <ul className="space-y-1 ml-4 list-disc text-zinc-400">
+            <li>All profile data is stored locally in your browser via chrome.storage.local</li>
+            <li>No data is sent to any server except the AI provider you configure</li>
+            <li>No analytics, tracking, or third-party data sharing</li>
+            <li>Job page content is read locally to extract job information</li>
+            <li>You can delete all data at any time below</li>
+          </ul>
+        </div>
+      </Section>
+
+      <Section title="Data Management">
+        <p className="text-sm text-zinc-400">
+          All data is stored locally in your browser via chrome.storage.local.
+          No data is sent to any server except the AI provider you configure.
+        </p>
+        <div className="mt-3 space-y-2">
+          <button className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm transition-colors">
+            Export All Data
+          </button>
+          <button
+            onClick={handleClearAll}
+            className={`w-full py-2 rounded-lg text-sm transition-colors ${
+              confirmDelete
+                ? 'bg-red-600 hover:bg-red-500 text-white'
+                : 'bg-red-900/30 hover:bg-red-900/50 border border-red-800 text-red-400'
+            }`}
+          >
+            {confirmDelete ? 'Click again to confirm deletion' : 'Delete All Data'}
+          </button>
+        </div>
+      </Section>
+    </div>
   );
 }
 

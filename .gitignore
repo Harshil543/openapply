@@ -9,3 +9,6 @@ secrets/
 *.log
 .DS_Store
 coverage
+.test-user-data
+test-results
+playwright-report

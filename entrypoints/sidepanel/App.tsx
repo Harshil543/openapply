@@ -1,14 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
-import { sendMessage } from '../../lib/messaging';
-import type { Profile } from '../../lib/schemas/profile';
-import type { Job, JobMatch } from '../../lib/schemas/job';
+import { useEffect, useState } from 'react';
+import { useSidePanelStore } from '../../lib/store';
 import type { Application, ApplicationStatusType } from '../../lib/schemas/application';
-import { calculateMatch, getScoreLabel } from '../../lib/matching/scorer';
-import { generateJobId, generateFingerprint } from '../../lib/utils';
-import { createEmptyProfile } from '../../lib/schemas/profile';
-import { createApplication } from '../../lib/schemas/application';
-
-type SideTab = 'analyze' | 'tracker';
+import type { Job } from '../../lib/schemas/job';
+import { getScoreLabel } from '../../lib/matching/scorer';
 
 const STATUS_COLORS: Record<string, string> = {
   saved: 'bg-zinc-700 text-zinc-300',
@@ -31,105 +25,25 @@ const NEXT_STATUSES: Record<ApplicationStatusType, ApplicationStatusType[]> = {
 };
 
 export function SidePanelApp() {
-  const [tab, setTab] = useState<SideTab>('analyze');
-  const [job, setJob] = useState<Job | null>(null);
-  const [match, setMatch] = useState<JobMatch | null>(null);
-  const [profile, setProfile] = useState<Profile>(createEmptyProfile());
-  const [loading, setLoading] = useState(false);
-  const [extractedData, setExtractedData] = useState<{
-    source: string; title: string; company: string; location: string;
-    description: string; skills: string[]; url: string; workMode: string;
-    easyApply?: boolean;
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedApp, setSelectedApp] = useState<Application | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  const loadProfile = useCallback(async () => {
-    const response = await sendMessage({ type: 'GET_PROFILE' });
-    if (response.success && response.data) setProfile(response.data as Profile);
-  }, []);
-
-  const loadApplications = useCallback(async () => {
-    const [appsRes, jobsRes] = await Promise.all([
-      sendMessage({ type: 'GET_APPLICATIONS' }),
-      sendMessage({ type: 'GET_JOBS' }),
-    ]);
-    if (appsRes.success && appsRes.data) setApplications(appsRes.data as Application[]);
-    if (jobsRes.success && jobsRes.data) setJobs(jobsRes.data as Job[]);
-  }, []);
+  const {
+    tab, setTab, profile, job, match, extractedData, loading, error,
+    applications, jobs, selectedApp, setSelectedApp,
+    statusFilter, setStatusFilter, answers, answerLoading,
+    loadProfile, loadApplications, extractJob, saveJob,
+    updateStatus, deleteApp, generateAnswers, editAnswer, resetExtracted,
+  } = useSidePanelStore();
 
   useEffect(() => { loadProfile(); }, [loadProfile]);
   useEffect(() => { if (tab === 'tracker') loadApplications(); }, [tab, loadApplications]);
 
-  const extractJob = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await sendMessage({ type: 'EXTRACT_JOB' });
-      if (response.success && response.data) {
-        const data = response.data as NonNullable<typeof extractedData>;
-        setExtractedData(data);
-
-        const jobRecord: Job = {
-          id: generateJobId(data.source, data.url, data.title, data.company),
-          sourceId: data.url.split('/').pop(),
-          source: data.source as Job['source'],
-          title: data.title,
-          company: data.company,
-          location: data.location,
-          workMode: (data.workMode as Job['workMode']) || 'unknown',
-          description: data.description,
-          skills: data.skills,
-          url: data.url,
-          easyApply: data.easyApply || false,
-          schemaVersion: 1,
-          fingerprint: generateFingerprint(data.company, data.title, data.location),
-          createdAt: new Date().toISOString(),
-        };
-        setJob(jobRecord);
-        setMatch(calculateMatch(jobRecord, profile));
-        await sendMessage({ type: 'SAVE_JOB', payload: jobRecord });
-      } else {
-        setError((response as { error?: string }).error || 'Could not extract job from this page');
-      }
-    } catch (err) {
-      setError(String(err));
-    }
-    setLoading(false);
-  };
-
-  const saveJob = async () => {
-    if (!job || !match) return;
-    await sendMessage({
-      type: 'SAVE_SAVED_JOB',
-      payload: { job, match, status: 'saved', savedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    });
-    const app = createApplication(job.id);
-    await sendMessage({ type: 'SAVE_APPLICATION', payload: app });
-    await loadApplications();
-    setTab('tracker');
-  };
-
-  const updateStatus = async (appId: string, newStatus: ApplicationStatusType) => {
-    await sendMessage({ type: 'UPDATE_APPLICATION_STATUS', payload: { id: appId, status: newStatus } });
-    await loadApplications();
-  };
-
-  const deleteApp = async (appId: string) => {
-    await sendMessage({ type: 'DELETE_APPLICATION', payload: { id: appId } });
-    await loadApplications();
-    setSelectedApp(null);
-  };
-
-  const getJobForApp = (app: Application) => jobs.find((j) => j.id === app.jobId);
-
   const filteredApps = statusFilter === 'all'
     ? applications
     : applications.filter((a) => a.status === statusFilter);
+
+  const statusCounts = applications.reduce<Record<string, number>>((acc, a) => {
+    acc[a.status] = (acc[a.status] || 0) + 1;
+    return acc;
+  }, {});
 
   const scoreColor = (score: number) => {
     if (score >= 85) return 'text-green-400';
@@ -139,10 +53,7 @@ export function SidePanelApp() {
     return 'text-red-400';
   };
 
-  const statusCounts = applications.reduce<Record<string, number>>((acc, a) => {
-    acc[a.status] = (acc[a.status] || 0) + 1;
-    return acc;
-  }, {});
+  const getJobForApp = (app: Application) => jobs.find((j) => j.id === app.jobId);
 
   return (
     <div className="w-full min-h-screen bg-zinc-950 text-zinc-100 p-4">
@@ -152,7 +63,7 @@ export function SidePanelApp() {
       </header>
 
       <nav className="flex gap-1 mb-4 bg-zinc-900 rounded-lg p-1">
-        {(['analyze', 'tracker'] as SideTab[]).map((t) => (
+        {(['analyze', 'tracker', 'answers'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -180,7 +91,7 @@ export function SidePanelApp() {
           scoreColor={scoreColor}
           onExtract={extractJob}
           onSave={saveJob}
-          onReset={() => { setExtractedData(null); setJob(null); setMatch(null); setError(null); }}
+          onReset={resetExtracted}
           onOpenJob={(url) => window.open(url, '_blank')}
         />
       )}
@@ -199,6 +110,16 @@ export function SidePanelApp() {
           getJob={getJobForApp}
         />
       )}
+
+      {tab === 'answers' && (
+        <AnswerReviewTab
+          answers={answers}
+          loading={answerLoading}
+          onEdit={editAnswer}
+          onGenerate={generateAnswers}
+          job={job}
+        />
+      )}
     </div>
   );
 }
@@ -206,8 +127,9 @@ export function SidePanelApp() {
 function AnalyzeTab({
   job, match, extractedData, loading, error, scoreColor, onExtract, onSave, onReset, onOpenJob,
 }: {
-  job: Job | null; match: JobMatch | null;
-  extractedData: { title: string; company: string; location: string; workMode: string; skills: string[]; url: string } | null;
+  job: ReturnType<typeof useSidePanelStore.getState>['job'];
+  match: ReturnType<typeof useSidePanelStore.getState>['match'];
+  extractedData: ReturnType<typeof useSidePanelStore.getState>['extractedData'];
   loading: boolean; error: string | null; scoreColor: (s: number) => string;
   onExtract: () => void; onSave: () => void; onReset: () => void; onOpenJob: (url: string) => void;
 }) {
@@ -458,6 +380,116 @@ function AppDetail({
         <button onClick={() => setConfirmDelete(true)} className="w-full py-2 text-xs text-red-400 hover:text-red-300 transition-colors">
           Delete Application
         </button>
+      )}
+    </div>
+  );
+}
+
+const DEFAULT_QUESTIONS = [
+  'Why are you interested in this position?',
+  'Why should we hire you?',
+  'What is your expected salary?',
+  'When can you start?',
+  'Are you authorized to work in this country?',
+];
+
+function AnswerReviewTab({
+  answers,
+  loading,
+  onEdit,
+  onGenerate,
+  job,
+}: {
+  answers: Record<string, { answer: string; confidence: number; source: string[]; requires_review: boolean; edited?: string }>;
+  loading: boolean;
+  onEdit: (q: string, val: string) => void;
+  onGenerate: (questions: string[]) => void;
+  job: { id: string } | null;
+}) {
+  const questions = Object.keys(answers);
+  const hasAnswers = questions.length > 0;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-white">AI Answers</h3>
+        {!hasAnswers && !loading && (
+          <button
+            onClick={() => onGenerate(DEFAULT_QUESTIONS)}
+            disabled={!job}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 rounded-lg text-xs font-medium transition-colors"
+          >
+            Generate Answers
+          </button>
+        )}
+      </div>
+
+      {loading && (
+        <div className="text-center py-8">
+          <div className="animate-spin w-6 h-6 border-2 border-zinc-700 border-t-blue-500 rounded-full mx-auto mb-3" />
+          <p className="text-sm text-zinc-400">Generating answers...</p>
+        </div>
+      )}
+
+      {!loading && !hasAnswers && (
+        <div className="text-center py-6">
+          <p className="text-sm text-zinc-500 mb-3">
+            Generate AI answers for common application questions.
+            Review and edit before using.
+          </p>
+          <p className="text-xs text-zinc-600">
+            Requires an AI provider configured in Settings.
+          </p>
+        </div>
+      )}
+
+      {hasAnswers && (
+        <div className="space-y-3">
+          {questions.map((q) => {
+            const a = answers[q];
+            const displayAnswer = a.edited ?? a.answer;
+            return (
+              <div key={q} className="bg-zinc-900 rounded-lg p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs font-medium text-zinc-300 flex-1">{q}</p>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      a.confidence >= 0.8 ? 'bg-green-900/30 text-green-400' :
+                      a.confidence >= 0.5 ? 'bg-yellow-900/30 text-yellow-400' :
+                      'bg-red-900/30 text-red-400'
+                    }`}>
+                      {Math.round(a.confidence * 100)}%
+                    </span>
+                    {a.requires_review && (
+                      <span className="text-[10px] px-1.5 py-0.5 bg-orange-900/30 text-orange-400 rounded">
+                        Review
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  value={displayAnswer}
+                  onChange={(e) => onEdit(q, e.target.value)}
+                  rows={3}
+                  className="w-full px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-xs text-white focus:outline-none focus:border-blue-500 resize-none"
+                />
+                <div className="flex gap-1">
+                  {a.source.map((s) => (
+                    <span key={s} className="text-[10px] px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <button
+            onClick={() => onGenerate(questions)}
+            className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-xs text-zinc-400 transition-colors"
+          >
+            Regenerate All
+          </button>
+        </div>
       )}
     </div>
   );

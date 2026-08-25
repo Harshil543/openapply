@@ -160,10 +160,18 @@ function extractLever() {
 
 function extractJobFromPage() {
   const url = window.location.hostname;
-  if (url.includes('linkedin.com')) return extractLinkedIn();
-  if (url.includes('greenhouse.io')) return extractGreenhouse();
-  if (url.includes('lever.co')) return extractLever();
-  return null;
+  let result;
+  if (url.includes('linkedin.com')) result = extractLinkedIn();
+  else if (url.includes('greenhouse.io')) result = extractGreenhouse();
+  else if (url.includes('lever.co')) result = extractLever();
+  else result = null;
+
+  if (result) {
+    console.log(`[OpenApply] Extracted "${result.title}" at "${result.company}" from ${url}`);
+  } else {
+    console.warn(`[OpenApply] Failed to extract job from ${url}`);
+  }
+  return result;
 }
 
 type FieldType = 'first_name' | 'last_name' | 'full_name' | 'email' | 'phone' | 'location' | 'city' | 'state' | 'zip' | 'country' | 'linkedin' | 'github' | 'portfolio' | 'website' | 'current_company' | 'current_title' | 'years_experience' | 'education' | 'degree' | 'gpa' | 'salary_expectation' | 'start_date' | 'cover_letter' | 'bio' | 'unknown';

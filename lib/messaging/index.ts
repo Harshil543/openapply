@@ -16,10 +16,11 @@ export type ExtensionMessage =
   | { type: 'GET_AI_CONFIG' }
   | { type: 'SAVE_AI_CONFIG'; payload: import('../schemas/ai').AIProviderConfig }
   | { type: 'GET_SETTINGS' }
-  | { type: 'SAVE_SETTINGS'; payload: { schemaVersion: number; minimumMatchScore: number; autoFillSafeFields: boolean; generateAIAnswers: boolean; requireReviewBeforeSubmit: boolean; showConfidence: boolean; localOnlyMode: boolean } }
+  | { type: 'SAVE_SETTINGS'; payload: import('../storage').AppSettings }
   | { type: 'EXTRACT_JOB' }
   | { type: 'DETECT_FORM' }
   | { type: 'FILL_FORM'; payload: Record<string, string> }
+  | { type: 'AI_ANSWER_QUESTION'; payload: { question: string; jobDescription?: string } }
   | { type: 'EXPORT_DATA' }
   | { type: 'CLEAR_ALL_DATA' };
 

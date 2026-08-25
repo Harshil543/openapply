@@ -2,6 +2,7 @@ import { ProfileSchema, type Profile } from '../schemas/profile';
 import { JobSchema, type Job, type SavedJob } from '../schemas/job';
 import { AIProviderConfigSchema, type AIProviderConfig } from '../schemas/ai';
 import { ApplicationSchema, type Application, type ApplicationStatusType } from '../schemas/application';
+import { encryptSecret, decryptSecret } from '../crypto';
 
 const STORAGE_KEYS = {
   PROFILE: 'openapply_profile',
@@ -23,6 +24,7 @@ export interface AppSettings {
   requireReviewBeforeSubmit: boolean;
   showConfidence: boolean;
   localOnlyMode: boolean;
+  theme: 'dark' | 'light' | 'system';
 }
 
 function createDefaultSettings(): AppSettings {
@@ -34,6 +36,7 @@ function createDefaultSettings(): AppSettings {
     requireReviewBeforeSubmit: true,
     showConfidence: true,
     localOnlyMode: false,
+    theme: 'dark',
   };
 }
 
@@ -183,17 +186,33 @@ export async function deleteApplication(id: string): Promise<void> {
   await setStorage(STORAGE_KEYS.APPLICATIONS, filtered);
 }
 
-// AI Config
+// AI Config (with API key encryption)
 export async function getAIConfig(): Promise<AIProviderConfig | null> {
   const raw = await getStorage<unknown>(STORAGE_KEYS.AI_CONFIG);
   if (!raw) return null;
   const result = AIProviderConfigSchema.safeParse(raw);
   if (!result.success) return null;
-  return result.data;
+  const config = result.data;
+  if (config.apiKey && config.apiKey.startsWith('enc:')) {
+    try {
+      config.apiKey = await decryptSecret(config.apiKey.slice(4));
+    } catch {
+      console.warn('[OpenApply] Failed to decrypt API key');
+    }
+  }
+  return config;
 }
 
 export async function saveAIConfig(config: AIProviderConfig): Promise<void> {
-  const validated = AIProviderConfigSchema.parse(config);
+  const toStore = { ...config };
+  if (toStore.apiKey && !toStore.apiKey.startsWith('enc:')) {
+    try {
+      toStore.apiKey = 'enc:' + (await encryptSecret(toStore.apiKey));
+    } catch {
+      console.warn('[OpenApply] Failed to encrypt API key, storing plaintext');
+    }
+  }
+  const validated = AIProviderConfigSchema.parse(toStore);
   await setStorage(STORAGE_KEYS.AI_CONFIG, validated);
 }
 
@@ -230,7 +249,22 @@ export async function exportAllData(): Promise<Record<string, unknown>> {
 // Schema migration
 export async function migrateIfNeeded(): Promise<void> {
   const storedVersion = await getStorage<number>(STORAGE_KEYS.SCHEMA_VERSION);
-  if (!storedVersion || storedVersion < CURRENT_SCHEMA_VERSION) {
+  if (!storedVersion || storedVersion >= CURRENT_SCHEMA_VERSION) {
     await setStorage(STORAGE_KEYS.SCHEMA_VERSION, CURRENT_SCHEMA_VERSION);
+    return;
   }
+
+  // v0 -> v1: Add education/experience arrays to existing profiles
+  if (storedVersion < 1) {
+    const profile = await getStorage<Profile>(STORAGE_KEYS.PROFILE);
+    if (profile && !profile.professional.education) {
+      profile.professional.education = [];
+      profile.professional.experience = [];
+      profile.professional.summary = '';
+      await setStorage(STORAGE_KEYS.PROFILE, profile);
+    }
+  }
+
+  await setStorage(STORAGE_KEYS.SCHEMA_VERSION, CURRENT_SCHEMA_VERSION);
+  console.log(`[OpenApply] Schema migrated from v${storedVersion} to v${CURRENT_SCHEMA_VERSION}`);
 }

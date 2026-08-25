@@ -34,7 +34,7 @@ export default defineConfig({
     description:
       'Find, score, and prepare job applications with privacy-first AI.',
     version: '1.0.0',
-    permissions: ['storage', 'activeTab', 'scripting', 'sidePanel', 'contextMenus'],
+    permissions: ['storage', 'activeTab', 'scripting', 'sidePanel', 'contextMenus', 'alarms'],
     host_permissions: [
       'https://www.linkedin.com/*',
       'https://boards.greenhouse.io/*',

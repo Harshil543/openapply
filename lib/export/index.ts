@@ -25,8 +25,26 @@ export function formatExportData(
   return JSON.stringify(data, null, 2);
 }
 
-export function downloadExport(data: string, filename: string): void {
-  const blob = new Blob([data], { type: 'application/json' });
+export function formatApplicationsCSV(applications: Application[], jobs: Job[]): string {
+  const header = 'Company,Title,Status,Applied At,Created,Last Updated,URL';
+  const rows = applications.map((app) => {
+    const job = jobs.find((j) => j.id === app.jobId);
+    const escape = (s: string) => `"${s.replace(/"/g, '""')}"`;
+    return [
+      escape(job?.company || ''),
+      escape(job?.title || ''),
+      app.status,
+      app.appliedAt || '',
+      app.createdAt,
+      app.updatedAt,
+      job?.url || '',
+    ].join(',');
+  });
+  return [header, ...rows].join('\n');
+}
+
+export function downloadExport(data: string, filename: string, mime = 'application/json'): void {
+  const blob = new Blob([data], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
