@@ -23,16 +23,13 @@ import {
   type AppSettings,
 } from '../lib/storage';
 
-async function extractJobFromActiveTab(): Promise<{ success: boolean; data: unknown; error?: string }> {
+async function extractJobFromActiveTab(): Promise<unknown> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return { success: false, data: null, error: 'No active tab found' };
+  if (!tab?.id) throw new Error('No active tab found');
 
-  try {
-    const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JOB' });
-    return response;
-  } catch {
-    return { success: false, data: null, error: 'Content script not loaded on this page' };
-  }
+  const response = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_JOB' });
+  if (!response?.success) throw new Error(response?.error || 'Extraction failed');
+  return response.data;
 }
 
 export default defineBackground(() => {
@@ -66,44 +63,26 @@ export default defineBackground(() => {
     SAVE_SETTINGS: (settings) => saveSettings(settings as AppSettings),
     EXPORT_DATA: () => exportAllData(),
     CLEAR_ALL_DATA: () => clearAllData(),
-  });
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message.type === 'EXTRACT_JOB') {
-      extractJobFromActiveTab().then(sendResponse);
-      return true;
-    }
-
-    if (message.type === 'AI_ANALYZE_JOB') {
-      (async () => {
-        const config = await getAIConfig();
-        const provider = createProvider(config);
-        const profile = await getProfile();
-        if (!profile) return sendResponse({ success: false, data: null, error: 'No profile configured' });
-        const result = await generateJobAnalysis(
-          provider, profile,
-          message.payload.jobTitle, message.payload.jobDescription, message.payload.skills
-        );
-        sendResponse({ success: true, data: result });
-      })().catch((err) => sendResponse({ success: false, data: null, error: String(err) }));
-      return true;
-    }
-
-    if (message.type === 'AI_ANSWER_QUESTION') {
-      (async () => {
-        const config = await getAIConfig();
-        const provider = createProvider(config);
-        const profile = await getProfile();
-        if (!profile) return sendResponse({ success: false, data: null, error: 'No profile configured' });
-        const result = await generateAnswer(
-          provider, message.payload.question, profile, message.payload.jobDescription
-        );
-        sendResponse({ success: true, data: result });
-      })().catch((err) => sendResponse({ success: false, data: null, error: String(err) }));
-      return true;
-    }
-
-    return false;
+    EXTRACT_JOB: () => extractJobFromActiveTab(),
+    AI_ANALYZE_JOB: async (payload) => {
+      const config = await getAIConfig();
+      const provider = createProvider(config);
+      const profile = await getProfile();
+      if (!profile) throw new Error('No profile configured');
+      return generateJobAnalysis(
+        provider, profile,
+        payload.jobTitle, payload.jobDescription, payload.skills
+      );
+    },
+    AI_ANSWER_QUESTION: async (payload) => {
+      const config = await getAIConfig();
+      const provider = createProvider(config);
+      const profile = await getProfile();
+      if (!profile) throw new Error('No profile configured');
+      return generateAnswer(
+        provider, payload.question, profile, payload.jobDescription
+      );
+    },
   });
 
   initMessageListener();

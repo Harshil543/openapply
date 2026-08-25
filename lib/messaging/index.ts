@@ -21,6 +21,7 @@ export type ExtensionMessage =
   | { type: 'DETECT_FORM' }
   | { type: 'FILL_FORM'; payload: Record<string, string> }
   | { type: 'AI_ANSWER_QUESTION'; payload: { question: string; jobDescription?: string } }
+  | { type: 'AI_ANALYZE_JOB'; payload: { jobTitle: string; jobDescription: string; skills: string[] } }
   | { type: 'EXPORT_DATA' }
   | { type: 'CLEAR_ALL_DATA' };
 

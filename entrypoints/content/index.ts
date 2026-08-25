@@ -47,19 +47,23 @@ export default defineContentScript({
 
 function querySelectorText(selectors: string[]): string {
   for (const sel of selectors) {
-    const el = document.querySelector(sel);
-    const text = el?.textContent?.trim();
-    if (text) return text;
+    try {
+      const el = document.querySelector(sel);
+      const text = el?.textContent?.trim();
+      if (text) return text;
+    } catch { /* invalid selector, skip */ }
   }
   return '';
 }
 
 function querySelectorAllText(selectors: string[]): string[] {
   for (const sel of selectors) {
-    const els = document.querySelectorAll(sel);
-    if (els.length > 0) {
-      return Array.from(els).map((el) => el.textContent?.trim() || '').filter(Boolean);
-    }
+    try {
+      const els = document.querySelectorAll(sel);
+      if (els.length > 0) {
+        return Array.from(els).map((el) => el.textContent?.trim() || '').filter(Boolean);
+      }
+    } catch { /* invalid selector, skip */ }
   }
   return [];
 }
@@ -87,24 +91,54 @@ function extractLinkedIn() {
   const title = querySelectorText([
     'h1.job-details-jobs-unified-top-card__job-title a',
     'h1.job-details-jobs-unified-top-card__job-title',
+    'h1.topcard__org-name-link',
+    'h1[class*="job-title"]',
+    'h1[class*="job-title-link"]',
+    'h1',
   ]);
   const company = querySelectorText([
     'span.job-details-jobs-unified-top-card__company-name a',
     'span.job-details-jobs-unified-top-card__company-name',
+    'a.topcard__org-name-link',
+    'span[class*="company-name"]',
+    'span[class*="company"]',
+    '.job-details-jobs-unified-top-card__company-name',
   ]);
-  if (!title || !company) return null;
 
-  const location = querySelectorText(['span.job-details-jobs-unified-top-card__bullet']);
-  const description = querySelectorText(['div.job-description__content']);
+  if (!title) {
+    const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+    if (!metaTitle) return null;
+  }
+
+  const location = querySelectorText([
+    'span.job-details-jobs-unified-top-card__bullet',
+    'span[class*="bullet"]',
+    'span[class*="location"]',
+    '.job-details-jobs-unified-top-card__primary-description-container span',
+  ]);
+  const description = querySelectorText([
+    'div.job-description__content',
+    'div[class*="description__content"]',
+    'div[class*="job-description"]',
+    'div[class*="show-more-less-html"]',
+    'section.description',
+  ]);
   const skills = querySelectorAllText([
     'span.job-details-jobs-unified-top-card__skills-match .job-details-skills-match__skill',
+    'span[class*="skills-match"] span[class*="skill"]',
+    'li.skill-item',
   ]);
-  const easyApply = !!document.querySelector('span.jobs-apply-button, button[aria-label*="Easy Apply"]');
+  const easyApply = !!document.querySelector('span.jobs-apply-button, button[aria-label*="Easy Apply"], button[class*="jobs-apply"]');
+
+  const resolvedTitle = title || document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+  const resolvedCompany = company || document.title.split(' - ')[0]?.trim() || document.title.split(' | ')[0]?.trim() || '';
+
+  if (!resolvedTitle) return null;
 
   return {
     source: 'linkedin',
-    title,
-    company,
+    title: resolvedTitle,
+    company: resolvedCompany,
     location,
     workMode: detectWorkMode(`${location} ${description}`),
     description,
@@ -115,13 +149,22 @@ function extractLinkedIn() {
 }
 
 function extractGreenhouse() {
-  const title = querySelectorText(['h1[data-role="job-title"]', '.app-title']);
+  const title = querySelectorText([
+    'h1[data-role="job-title"]',
+    '.app-title',
+    'h1[class*="job-title"]',
+    'h1',
+  ]);
   if (!title) return null;
 
-  const company = querySelectorText(['.company-name']) || document.title.split(' - ')[0]?.trim() || '';
-  const location = querySelectorText(['.location', 'li.location']);
-  const description = querySelectorText(['#content', '.content']);
-  const salary = querySelectorText(['.salary']);
+  const company = querySelectorText([
+    '.company-name',
+    'a[data-role="company-name"]',
+    'span[class*="company"]',
+  ]) || document.title.split(' - ')[0]?.trim() || document.title.split(' | ')[0]?.trim() || '';
+  const location = querySelectorText(['.location', 'li.location', '[class*="location"]']);
+  const description = querySelectorText(['#content', '.content', '[class*="description"]']);
+  const salary = querySelectorText(['.salary', '[class*="salary"]']);
 
   return {
     source: 'greenhouse',
@@ -137,13 +180,34 @@ function extractGreenhouse() {
 }
 
 function extractLever() {
-  const title = querySelectorText(['.posting-headline h2', '.posting-header .posting-title h2']);
+  const title = querySelectorText([
+    '.posting-headline h2',
+    '.posting-header .posting-title h2',
+    'h2[class*="posting-title"]',
+    'h2[class*="posting"]',
+    'h2',
+  ]);
   if (!title) return null;
 
-  const company = querySelectorText(['.posting-headline .company-name', '.postings-header .company']);
-  const location = querySelectorText(['.posting-headline .location', '.postings-header .location']);
-  const description = querySelectorText(['.posting-page .content', '.section-wrapper .content']);
-  const salary = querySelectorText(['.posting-salary']);
+  const company = querySelectorText([
+    '.posting-headline .company-name',
+    '.postings-header .company',
+    '.company-name',
+    'a[class*="company"]',
+  ]);
+  const location = querySelectorText([
+    '.posting-headline .location',
+    '.postings-header .location',
+    '.posting-headline .location',
+    '[class*="location"]',
+  ]);
+  const description = querySelectorText([
+    '.posting-page .content',
+    '.section-wrapper .content',
+    '.posting-page section',
+    '[class*="content"]',
+  ]);
+  const salary = querySelectorText(['.posting-salary', '[class*="salary"]']);
 
   return {
     source: 'lever',
@@ -158,6 +222,31 @@ function extractLever() {
   };
 }
 
+function extractGenericFallback() {
+  const title = querySelectorText([
+    'meta[property="og:title"]',
+    'meta[name="title"]',
+  ]) || document.title.split(' - ')[0]?.trim() || '';
+  if (!title) return null;
+
+  const description = querySelectorText([
+    'meta[property="og:description"]',
+    'meta[name="description"]',
+  ]);
+  const company = document.title.split(' - ')[1]?.trim() || document.title.split(' | ')[1]?.trim() || '';
+
+  return {
+    source: 'manual' as const,
+    title,
+    company,
+    location: '',
+    workMode: 'unknown',
+    description,
+    skills: extractSkillsFromDescription(description),
+    url: window.location.href,
+  };
+}
+
 function extractJobFromPage() {
   const url = window.location.hostname;
   let result;
@@ -166,10 +255,12 @@ function extractJobFromPage() {
   else if (url.includes('lever.co')) result = extractLever();
   else result = null;
 
+  if (!result) result = extractGenericFallback();
+
   if (result) {
     console.log(`[OpenApply] Extracted "${result.title}" at "${result.company}" from ${url}`);
   } else {
-    console.warn(`[OpenApply] Failed to extract job from ${url}`);
+    console.warn(`[OpenApply] Failed to extract job from ${url} — no selectors matched`);
   }
   return result;
 }
