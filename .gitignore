@@ -1,0 +1,11 @@
+node_modules
+.output
+.wxt
+dist
+.env
+.env.*
+*.key
+secrets/
+*.log
+.DS_Store
+coverage

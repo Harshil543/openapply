@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": ["chrome", "vitest/globals", "node"],
+    "paths": {
+      "@/*": ["./lib/*"],
+      "@components/*": ["./components/*"]
+    }
+  },
+  "include": [
+    "lib/**/*",
+    "components/**/*",
+    "entrypoints/**/*",
+    "tests/**/*",
+    ".wxt/types.d.ts",
+    "wxt.config.ts"
+  ],
+  "exclude": ["node_modules", ".output", ".wxt"]
+}
